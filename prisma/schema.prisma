@@ -1,0 +1,71 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+
+}
+
+model User {
+  id        Int        @id @default(autoincrement())
+  email     String     @unique
+  password  String
+  name      String
+  posts     Post[]
+  comments  Comment[]
+  reactions Reaction[]
+}
+
+// 4. Định nghĩa Model Bài viết (Hỗ trợ SEO và Markdown)
+model Post {
+  id            Int        @id @default(autoincrement())
+  title         String
+  slug          String     @unique // Dùng cho SEO URL thay vì ID
+  content       String     @db.Text // Lưu trữ chuỗi Markdown thô
+  thumbnail     String?    // Link ảnh từ Cloudinary
+  published     Boolean    @default(false)
+  likeCount     Int        @default(0) // Cache số lượng để SSR nhanh hơn
+  dislikeCount  Int        @default(0)
+  author        User       @relation(fields: [authorId], references: [id])
+  authorId      Int
+  comments      Comment[]
+  reactions     Reaction[]
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+// 5. Định nghĩa Model Bình luận
+model Comment {
+  id        Int      @id @default(autoincrement())
+  content   String   // Plain text
+  post      Post     @relation(fields: [postId], references: [id])
+  postId    Int
+  author    User     @relation(fields: [authorId], references: [id])
+  authorId  Int
+  createdAt DateTime @default(now())
+}
+
+// 6. Định nghĩa Model Cảm xúc (Like/Dislike)
+enum ReactionType {
+  LIKE
+  DISLIKE
+}
+
+model Reaction {
+  id     Int          @id @default(autoincrement())
+  type   ReactionType
+  user   User         @relation(fields: [userId], references: [id])
+  userId Int
+  post   Post         @relation(fields: [postId], references: [id])
+  postId Int
+
+  @@unique([userId, postId]) // Mỗi người chỉ được Reaction 1 lần/bài
+}
