@@ -26,6 +26,7 @@ model User {
   posts     Post[]
   comments  Comment[]
   reactions Reaction[]
+  media     Media[]
 }
 
 // 4. Định nghĩa Model Bài viết (Hỗ trợ SEO và Markdown)
@@ -42,6 +43,7 @@ model Post {
   authorId      Int
   comments      Comment[]
   reactions     Reaction[]
+  media         Media[]    // Ảnh thuộc bài viết này
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 }
@@ -72,4 +74,25 @@ model Reaction {
   postId Int
 
   @@unique([userId, postId]) // Mỗi người chỉ được Reaction 1 lần/bài
+}
+
+model Media {
+  id         Int      @id @default(autoincrement())
+  url        String   // Secure URL từ Cloudinary
+  publicId   String   @unique // ID trên Cloudinary, dùng để xóa ảnh
+  format     String?  // jpg, png, webp...
+  width      Int?     // Chiều rộng (px)
+  height     Int?     // Chiều cao (px)
+  bytes      Int?     // Kích thước file (bytes)
+
+  uploader   User     @relation(fields: [uploaderId], references: [id])
+  uploaderId Int
+
+  post       Post?    @relation(fields: [postId], references: [id], onDelete: SetNull)
+  postId     Int?     // null = ảnh chưa gắn vào bài viết (orphan/nháp)
+
+  createdAt  DateTime @default(now())
+
+  @@index([uploaderId])
+  @@index([postId])
 }
