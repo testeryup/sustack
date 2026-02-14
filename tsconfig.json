@@ -11,7 +11,7 @@
     "moduleResolution": "bundler",
     "target": "ES2023",
     "esModuleInterop": true,
-    "types": [],
+    "types": ["jest", "node"],
     // For nodejs:
     // "lib": ["esnext"],
     // "types": ["node"],

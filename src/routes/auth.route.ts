@@ -6,14 +6,13 @@ import { protect } from "../middlewares/auth.middleware";
 const router = Router();
 
 router.post(
-    '/register',
+    '/signup',
     validate(userRegisterSchema),
     registerController
 );
 
 router.post('/login',
     validate(userLoginSchema),
-    protect,
     loginController
 );
 

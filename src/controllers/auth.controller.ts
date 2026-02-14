@@ -1,5 +1,5 @@
 import { hashPassword, comparePassword } from "../utils/password";
-import type { UserRegisterSchema, UserLoginSchema } from "../schemas/user.schema";
+// import type { UserRegisterSchema, UserLoginSchema } from "../schemas/user.schema";
 import type { Request, Response } from "express";
 import { catchAsync } from "../utils/catchAsync";
 import { prisma } from "../lib/prisma";
@@ -13,8 +13,9 @@ export const loginController = catchAsync(async (req: any, res: any, next: any) 
             email
         }
     });
-    if(!user || !comparePassword(password, user.password)){
-        return next(new AppError("Thông tin đâng nhập không chính xác", 401));
+   
+    if(!user || !(await comparePassword(password, user.password))){
+        return next(new AppError("Thông tin đăng nhập không chính xác", 401));
     }
     const token = signToken(user!.id, user!.role);
     const {password: _ , ...userWithoutPassword } = user;
@@ -24,8 +25,8 @@ export const loginController = catchAsync(async (req: any, res: any, next: any) 
         data: {
             user: userWithoutPassword
         }
-    })
-})
+    });
+});
 
 export const registerController = catchAsync(
     async (req: Request, res: Response, next: any) => {
@@ -49,7 +50,22 @@ export const registerController = catchAsync(
                 password: hashedPassword
             }
         });
-        return res.status(200).json({
-            status: "success"
+
+        const createdUser = await prisma.user.findUnique({
+            where: {
+                email
+            }
+        });
+        if(!createdUser){
+            return next(new AppError("Đăng ký thất bại", 400));
+        }
+        const token = signToken(createdUser!.id, createdUser!.role);
+        const {password: _ , ...userWithoutPassword } = createdUser;
+        return res.status(201).json({
+            status: "success",
+            token,
+            data: {
+                user: userWithoutPassword
+            }
         });
 });
