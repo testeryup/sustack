@@ -11,6 +11,7 @@ import { protect } from "./middlewares/auth.middleware";
 import { validate } from "./middlewares/validate.middleware";
 import { deleteCommentSchema } from "./schemas/comment.schema";
 import { deleteComment } from "./controllers/comment.controller";
+import { healthCheckController } from "./controllers/health.controller";
 
 const app = express();
 app.use(helmet());
@@ -29,7 +30,7 @@ app.use("/api/v1/media", mediaRouter);
 
 // Comment delete route (không cần postId nên mount riêng)
 app.delete("/api/v1/comments/:commentId", protect, validate(deleteCommentSchema), deleteComment);
-
+app.get('/health', healthCheckController);
 app.use(globalErrorHandler);
 
 export default app;
