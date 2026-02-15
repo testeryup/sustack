@@ -1,6 +1,8 @@
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
+import swaggerUi from "swagger-ui-express";
+import swaggerDocument from "./swagger";
 import { globalErrorHandler } from "./middlewares/error.middleware";
 import authRouter from "./routes/auth.route";
 import postRouter from "./routes/post.route";
@@ -14,6 +16,12 @@ const app = express();
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
+
+// Swagger UI
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
+  explorer: true,
+  customSiteTitle: "Sustack API Docs",
+}));
 
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/posts", postRouter);

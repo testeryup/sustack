@@ -19,6 +19,7 @@ Backend API cho nền tảng blog, hỗ trợ đầy đủ chức năng bài vi�
 - [Caching](#caching)
 - [Validation](#validation)
 - [Error Handling](#error-handling)
+- [Swagger UI](#swagger-ui)
 - [Testing](#testing)
 
 ---
@@ -630,6 +631,33 @@ Trả về đầy đủ error + stack trace:
 | Prisma P2025 (not found) | 404 | `"Không tìm thấy bản ghi"` |
 | Prisma P2003 (FK) | 400 | `"Dữ liệu tham chiếu không hợp lệ"` |
 | Unknown | 500 | `"Đã xảy ra lỗi từ phía máy chủ"` |
+
+---
+
+## Swagger UI
+
+API được tích hợp Swagger UI tại endpoint `/api-docs` để test trực quan tất cả endpoints.
+
+### Truy cập
+
+```
+http://localhost:3000/api-docs
+```
+
+### Tính năng
+
+- Giao diện trực quan liệt kê tất cả 17 endpoints, nhóm theo tag (Auth, Posts, Comments, Reactions, Media)
+- **Try it out** — gửi request trực tiếp từ trình duyệt
+- **Authorize** — nhập JWT token (click nút 🔒 Authorize) để test các endpoint cần xác thực
+- Hiển thị đầy đủ request body schema, response schema, validation rules và mô tả chi tiết
+- Hỗ trợ upload file (multipart/form-data) cho endpoint Media
+
+### Workflow test thông qua Swagger UI
+
+1. Gọi `POST /auth/signup` hoặc `POST /auth/login` để lấy token
+2. Click nút **Authorize** (🔓) ở góc trên → nhập token vào field `BearerAuth`
+3. Bây giờ tất cả endpoint yêu cầu auth sẽ tự động gửi kèm `Authorization: Bearer <token>`
+4. Sử dụng **Try it out** trên từng endpoint để test
 
 ---
 

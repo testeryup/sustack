@@ -81,7 +81,6 @@ export const logoutController = catchAsync(async (req: any, res: Response, next:
     }
 
     const decoded: any = verifyToken(token);
-    // TTL = thời gian còn lại của token (giây)
     const expiry = decoded.exp;
     const now = Math.floor(Date.now() / 1000);
     const ttl = expiry - now;
