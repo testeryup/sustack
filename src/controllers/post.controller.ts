@@ -4,6 +4,8 @@ import { prisma } from '../lib/prisma';
 import { catchAsync } from '../utils/catchAsync';
 import { AppError } from '../utils/appError';
 import { deleteFromCloudinary } from '../services/media.service';
+import { invalidateCache, invalidatePattern } from '../services/cache.service';
+import { getPostSlugKey, POST_LIST_PATTERN } from '../utils/cacheKeys';
 
 export const createPost = catchAsync(async (req: any, res: any) => {
   const { title, content, thumbnail, published } = req.body;
@@ -20,6 +22,8 @@ export const createPost = catchAsync(async (req: any, res: any) => {
       authorId: req.user.id,
     },
   });
+
+  await invalidatePattern(POST_LIST_PATTERN);
 
   res.status(201).json({ status: 'success', data: post });
 });
@@ -72,6 +76,13 @@ export const updatePost = catchAsync(async (req: any, res: any, next: any) => {
     data: updateData,
   });
 
+  // Invalidate old slug cache and list cache
+  await invalidateCache(getPostSlugKey(post.slug));
+  if (updatedPost.slug !== post.slug) {
+    await invalidateCache(getPostSlugKey(updatedPost.slug));
+  }
+  await invalidatePattern(POST_LIST_PATTERN);
+
   res.status(200).json({ status: 'success', data: updatedPost });
 });
 
@@ -110,6 +121,9 @@ export const deletePost = catchAsync(async (req: any, res: any, next: any) => {
 
   // 6. Xóa bài viết (reactions cascade tự động nhờ onDelete: Cascade)
   await prisma.post.delete({ where: { id: postId } });
+
+  await invalidateCache(getPostSlugKey(post.slug));
+  await invalidatePattern(POST_LIST_PATTERN);
 
   res.status(204).json({ status: 'success', data: null });
 });

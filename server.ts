@@ -1,14 +1,17 @@
 import 'dotenv/config';
 import express from 'express';
 import app from './src/app';
+import { connectRedis } from './src/lib/redis';
 const PORT = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
   res.send('OKKKK');
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+connectRedis().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
+  });
 });
 
 process.on('unhandledRejection', (err: Error) => {
