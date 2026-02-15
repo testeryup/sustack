@@ -198,6 +198,9 @@ docker-compose down
 
 ## Database Schema
 
+### Chi tiết
+![database](https://github.com/testeryup/sustack/blob/main/images/database.png)
+
 ### Entity Relationship
 
 ```
