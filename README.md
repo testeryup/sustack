@@ -4,6 +4,7 @@ Backend API cho nền tảng blog, hỗ trợ đầy đủ chức năng bài vi�
 
 > **Live URL**: [https://sustack-backend.onrender.com](https://sustack-backend.onrender.com)
 
+
 ## Mục lục
 
 - [Tech Stack](#tech-stack)
@@ -109,6 +110,73 @@ sustack/
 ├── tsconfig.json
 ├── prisma.config.ts
 └── package.json
+```
+### Use Case Diagram
+
+```mermaid
+flowchart LR
+    subgraph Actors
+        Guest(("Guest"))
+        User(("User"))
+        Admin(("Admin"))
+    end
+
+    subgraph Auth["Authentication"]
+        A1["Đăng ký tài khoản"]
+        A2["Đăng nhập"]
+        A3["Đăng xuất\n(Blacklist Token)"]
+    end
+
+    subgraph Posts["Posts"]
+        P1["Xem danh sách bài viết"]
+        P2["Xem chi tiết bài viết\n(theo slug)"]
+        P3["Tạo bài viết\n(Markdown + SEO slug)"]
+        P4["Sửa bài viết\n(chỉ tác giả)"]
+        P5["Xóa bài viết\n(cascade comments,\nreactions, media)"]
+    end
+
+    subgraph Comments["Comments"]
+        C1["Xem bình luận\n(phân trang)"]
+        C2["Tạo bình luận"]
+        C3["Reply bình luận\n(đa cấp)"]
+        C4["Xóa bình luận\n(Soft Delete)"]
+    end
+
+    subgraph Reactions["Reactions"]
+        R1["Toggle Like/Dislike\n(3 trạng thái)"]
+        R2["Xem reaction hiện tại"]
+    end
+
+    subgraph Media["Media"]
+        M1["Upload ảnh\n(Cloudinary, max 5MB)"]
+        M2["Xem ảnh orphan"]
+        M3["Xóa ảnh"]
+        M4["Dọn orphan media"]
+    end
+
+    Guest --> A1
+    Guest --> A2
+    Guest --> P1
+    Guest --> P2
+    Guest --> C1
+
+    User --> A3
+    User --> P3
+    User --> P4
+    User --> P5
+    User --> C2
+    User --> C3
+    User --> C4
+    User --> R1
+    User --> R2
+    User --> M1
+    User --> M2
+    User --> M3
+
+    Admin -.->|"Sửa/Xóa\nbài viết bất kỳ"| P4
+    Admin -.->|"Sửa/Xóa\nbài viết bất kỳ"| P5
+    Admin -.->|"Xóa bình luận\nbất kỳ"| C4
+    Admin -->|"Admin Only"| M4
 ```
 
 ---
