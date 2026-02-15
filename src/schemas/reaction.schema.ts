@@ -6,8 +6,7 @@ export const reactionSchema = z.object({
   }),
   body: z.object({
     type: z.enum(['LIKE', 'DISLIKE'], {
-      required_error: 'Loại reaction là bắt buộc',
-      invalid_type_error: 'Loại reaction phải là LIKE hoặc DISLIKE',
-    }),
+      error: 'Loại reaction phải là LIKE hoặc DISLIKE',
+    })
   }),
 });
