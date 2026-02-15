@@ -49,6 +49,11 @@ export const globalErrorHandler = (
       error = new AppError('Không tìm thấy bản ghi yêu cầu.', 404);
     }
 
+    if (err.code === 'P2003') {
+      const field = err.meta?.field_name;
+      error = new AppError(`Dữ liệu tham chiếu ${field} không tồn tại.`, 400);
+    }
+
     sendErrorProd(error, res);
   }
 };

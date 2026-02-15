@@ -48,15 +48,28 @@ model Post {
   updatedAt     DateTime   @updatedAt
 }
 
-// 5. Định nghĩa Model Bình luận
+// 5. Định nghĩa Model Bình luận (Đa cấp + Soft Delete)
 model Comment {
-  id        Int      @id @default(autoincrement())
-  content   String   // Plain text
-  post      Post     @relation(fields: [postId], references: [id])
+  id        Int       @id @default(autoincrement())
+  content   String    // Plain text
+  post      Post      @relation(fields: [postId], references: [id])
   postId    Int
-  author    User     @relation(fields: [authorId], references: [id])
+  author    User      @relation(fields: [authorId], references: [id])
   authorId  Int
-  createdAt DateTime @default(now())
+
+  // Self-relation: bình luận đa cấp (reply)
+  parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  parentId  Int?
+  replies   Comment[] @relation("CommentReplies")
+
+  // Soft delete: giữ thread liền mạch, nội dung hiển thị "[Đã xóa]"
+  deletedAt DateTime?
+
+  createdAt DateTime  @default(now())
+
+  @@index([postId])
+  @@index([authorId])
+  @@index([parentId])
 }
 
 // 6. Định nghĩa Model Cảm xúc (Like/Dislike)
@@ -66,14 +79,16 @@ enum ReactionType {
 }
 
 model Reaction {
-  id     Int          @id @default(autoincrement())
-  type   ReactionType
-  user   User         @relation(fields: [userId], references: [id])
-  userId Int
-  post   Post         @relation(fields: [postId], references: [id])
-  postId Int
+  id        Int          @id @default(autoincrement())
+  type      ReactionType
+  user      User         @relation(fields: [userId], references: [id])
+  userId    Int
+  post      Post         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId    Int
+  createdAt DateTime     @default(now())
 
   @@unique([userId, postId]) // Mỗi người chỉ được Reaction 1 lần/bài
+  @@index([postId])
 }
 
 model Media {

@@ -91,7 +91,13 @@ export const deletePost = catchAsync(async (req: any, res: any, next: any) => {
     return next(new AppError('Bạn không có quyền xóa bài này', 403));
   }
 
-  // 3. Xóa media trên Cloudinary + DB
+  // 3. Soft delete tất cả comment của bài viết
+  await prisma.comment.updateMany({
+    where: { postId },
+    data: { deletedAt: new Date() },
+  });
+
+  // 4. Xóa media trên Cloudinary + DB
   if (post.media.length > 0) {
     await Promise.allSettled(
       post.media.map((m) => deleteFromCloudinary(m.publicId))
@@ -99,7 +105,10 @@ export const deletePost = catchAsync(async (req: any, res: any, next: any) => {
     await prisma.media.deleteMany({ where: { postId } });
   }
 
-  // 4. Xóa bài viết
+  // 5. Xóa comments khỏi DB (đã soft delete ở trên, giờ xóa hẳn vì post bị xóa)
+  await prisma.comment.deleteMany({ where: { postId } });
+
+  // 6. Xóa bài viết (reactions cascade tự động nhờ onDelete: Cascade)
   await prisma.post.delete({ where: { id: postId } });
 
   res.status(204).json({ status: 'success', data: null });
