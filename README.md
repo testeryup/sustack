@@ -2,6 +2,8 @@
 
 Backend API cho nền tảng blog, hỗ trợ đầy đủ chức năng bài viết, bình luận đa cấp, reaction (like/dislike), quản lý media qua Cloudinary, xác thực JWT với blacklist token trên Redis và caching layer.
 
+> **Live URL**: [https://sustack-backend.onrender.com](https://sustack-backend.onrender.com)
+
 ## Mục lục
 
 - [Tech Stack](#tech-stack)
@@ -21,6 +23,7 @@ Backend API cho nền tảng blog, hỗ trợ đầy đủ chức năng bài vi�
 - [Error Handling](#error-handling)
 - [Swagger UI](#swagger-ui)
 - [Testing](#testing)
+- [Docker & Deployment](#docker--deployment)
 
 ---
 
@@ -28,16 +31,19 @@ Backend API cho nền tảng blog, hỗ trợ đầy đủ chức năng bài vi�
 
 | Layer | Công nghệ |
 |-------|-----------|
-| Runtime | Node.js + TypeScript (ESM) |
+| Runtime | Node.js 20 + TypeScript (ESM) |
 | Framework | Express 5 |
 | ORM | Prisma 7 (PostgreSQL, `@prisma/adapter-pg`) |
-| Cache / Token Blacklist | Redis 5 |
+| Database | PostgreSQL 15 — hosted trên **Supabase** (connection pooling via PgBouncer) |
+| Cache / Token Blacklist | Redis 5 — hosted trên **Redis Cloud** |
 | Auth | JWT (`jsonwebtoken`) + bcryptjs |
 | Validation | Zod 4 |
 | Media Storage | Cloudinary |
 | Upload | Multer (memory storage) |
 | Security | Helmet, CORS, express-rate-limit |
 | Testing | Jest 30 + ts-jest + Supertest |
+| Containerization | Docker (multi-stage build) |
+| Deployment | Render (Web Service) |
 
 ---
 
@@ -96,6 +102,9 @@ sustack/
 │   ├── reaction.test.ts
 │   ├── cache.test.ts         # Cache service unit tests
 │   └── cache-integration.test.ts
+├── Dockerfile                # Multi-stage Docker build
+├── docker-compose.yml        # Local Docker orchestration
+├── .dockerignore
 ├── jest.config.cjs
 ├── tsconfig.json
 ├── prisma.config.ts
@@ -109,11 +118,12 @@ sustack/
 ### Yêu cầu
 
 - Node.js ≥ 20
-- PostgreSQL
-- Redis
-- Tài khoản Cloudinary
+- PostgreSQL (hoặc tài khoản [Supabase](https://supabase.com))
+- Redis (hoặc tài khoản [Redis Cloud](https://redis.io/cloud/))
+- Tài khoản [Cloudinary](https://cloudinary.com)
+- Docker (optional, cho deployment)
 
-### Cài đặt
+### Cài đặt local
 
 ```bash
 # Clone repo
@@ -126,11 +136,11 @@ npm install
 # Tạo file .env (xem phần Biến môi trường)
 cp .env.example .env
 
-# Chạy migration
-npx prisma migrate deploy
-
 # Generate Prisma client
 npx prisma generate
+
+# Chạy migration
+npx prisma migrate deploy
 ```
 
 ### Chạy
@@ -139,11 +149,27 @@ npx prisma generate
 # Development (hot reload)
 npm run dev
 
-# Production
-npm start
+# Build production
+npm run build
 
 # Test
 npm test
+```
+
+### Chạy với Docker
+
+```bash
+# Build và chạy
+docker-compose up --build
+
+# Chạy nền
+docker-compose up --build -d
+
+# Xem logs
+docker-compose logs -f app
+
+# Dừng
+docker-compose down
 ```
 
 ---
@@ -152,18 +178,21 @@ npm test
 
 | Biến | Mô tả | Ví dụ |
 |------|--------|-------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:pass@localhost:5432/sustack` |
-| `REDIS_HOST` | Redis host | `localhost` |
-| `REDIS_PORT` | Redis port | `6379` |
-| `REDIS_USERNAME` | Redis username (optional) | — |
-| `REDIS_PASSWORD` | Redis password (optional) | — |
-| `JWT_SECRET` | Secret key cho JWT | `my-super-secret-key` |
-| `JWT_EXPIRES_IN` | Thời gian hết hạn JWT | `7d` |
+| `DATABASE_URL` | PostgreSQL connection string (pooling) | `postgresql://user:pass@host:5432/db?pgbouncer=true` |
+| `DIRECT_URL` | Direct connection (dùng cho migration) | `postgresql://user:pass@host:5432/db` |
+| `REDIS_HOST` | Redis Cloud host | `redis-xxxxx.cloud.redislabs.com` |
+| `REDIS_PORT` | Redis port | `10393` |
+| `REDIS_USERNAME` | Redis username | `default` |
+| `REDIS_PASSWORD` | Redis password | — |
+| `JWT_SECRET` | Secret key cho JWT (≥ 32 ký tự random) | `my-super-secret-key` |
+| `JWT_EXPIRES_IN` | Thời gian hết hạn JWT | `1d` |
 | `CLOUDINARY_CLOUD_NAME` | Cloudinary cloud name | `my-cloud` |
 | `CLOUDINARY_API_KEY` | Cloudinary API key | `123456789` |
 | `CLOUDINARY_API_SECRET` | Cloudinary API secret | `abc-xyz` |
 | `PORT` | Port server (default 3000) | `3000` |
 | `NODE_ENV` | Environment | `development` / `production` |
+
+> **Lưu ý Supabase**: `DATABASE_URL` dùng pooling connection (qua PgBouncer, port 6543 hoặc 5432 tuỳ config). `DIRECT_URL` dùng direct connection cho `prisma migrate deploy`.
 
 ---
 
@@ -694,6 +723,88 @@ npx cross-env NODE_OPTIONS=--experimental-vm-modules npx jest --runInBand "tests
 - **Supertest** cho integration tests (HTTP)
 - **jest.unstable_mockModule** cho unit tests (mock dependencies)
 - Chạy `--runInBand` để tránh conflict giữa các test qua DB
+
+---
+
+## Docker & Deployment
+
+### Kiến trúc hạ tầng
+
+```
+┌─────────────────────┐
+│   Render (Docker)    │
+│   sustack-backend    │
+│   ┌───────────────┐  │
+│   │  Node.js App  │──┼──→ Supabase (PostgreSQL + PgBouncer)
+│   │  + tsx runner  │  │
+│   │  + Prisma 7   │──┼──→ Redis Cloud (Cache + Token Blacklist)
+│   └───────────────┘  │
+│          │            │
+│          └────────────┼──→ Cloudinary (Media Storage)
+└─────────────────────┘
+```
+
+### Dockerfile (Multi-stage Build)
+
+Build 2 giai đoạn để tối ưu image size:
+
+| Stage | Mục đích |
+|-------|----------|
+| **Builder** | Install all deps, `prisma generate`, `tsc` compile |
+| **Runner** | Copy dist + generated, install production deps only, run với `tsx` |
+
+> **Lưu ý Prisma 7**: Prisma 7 generate `.ts` files với `.ts` import paths. TypeScript compiler không rewrite extensions khi compile sang `.js`. Do đó, `dist/generated/` được ghi đè bằng file `.ts` gốc và chạy qua `tsx` runtime.
+
+### Startup sequence trong Docker
+
+```
+1. npx prisma migrate deploy   → Chạy pending migrations lên Supabase
+2. tsx dist/server.js           → Khởi động Express server
+   ├── Connect Redis Cloud
+   └── Listen on $PORT
+```
+
+### docker-compose.yml
+
+Chỉ chứa service `app` — database (Supabase) và cache (Redis Cloud) đều là managed services bên ngoài:
+
+```yaml
+services:
+  app:
+    build: .
+    restart: always
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+```
+
+### Deploy lên Render
+
+1. Push code lên GitHub
+2. Tạo **Web Service** trên [render.com](https://render.com) → chọn **Docker** runtime
+3. Kết nối GitHub repo, chọn branch `main`
+4. Thêm **Environment Variables** (tất cả biến trong `.env`)
+5. Deploy — Render tự build từ Dockerfile và chạy container
+6. Mỗi lần push lên `main`, Render auto redeploy
+
+### Chạy Docker local
+
+```bash
+# Build và chạy
+docker-compose up --build
+
+# Chạy nền
+docker-compose up --build -d
+
+# Xem logs
+docker-compose logs -f app
+
+# Dừng
+docker-compose down
+```
 
 ---
 
