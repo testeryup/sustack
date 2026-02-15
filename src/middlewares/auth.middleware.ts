@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import {prisma} from '../lib/prisma';
 import { catchAsync } from "../utils/catchAsync";
 import { AppError } from "../utils/appError";
+import { isTokenBlacklisted } from "../services/cache.service";
 
 export const protect = catchAsync(async (req: any, res: Response, next: NextFunction) => {
     let token;
@@ -11,6 +12,12 @@ export const protect = catchAsync(async (req: any, res: Response, next: NextFunc
     }
     if(!token){
         return next(new AppError("Cần đăng nhập để truy cập", 401));
+    }
+
+    // Kiểm tra token có trong blacklist không
+    const blacklisted = await isTokenBlacklisted(token);
+    if(blacklisted){
+        return next(new AppError("Token đã bị vô hiệu hóa, vui lòng đăng nhập lại", 401));
     }
 
     const decoded: any = jwt.verify(token, process.env.JWT_SECRET as string);

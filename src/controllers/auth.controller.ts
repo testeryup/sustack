@@ -4,7 +4,8 @@ import type { Request, Response } from "express";
 import { catchAsync } from "../utils/catchAsync";
 import { prisma } from "../lib/prisma";
 import { AppError } from "../utils/appError";
-import { signToken } from "../utils/jwt";
+import { signToken, verifyToken } from "../utils/jwt";
+import { blacklistToken } from "../services/cache.service";
 
 export const loginController = catchAsync(async (req: any, res: any, next: any) => {
     const {email, password} = req.body;
@@ -68,4 +69,29 @@ export const registerController = catchAsync(
                 user: userWithoutPassword
             }
         });
+});
+
+export const logoutController = catchAsync(async (req: any, res: Response, next: any) => {
+    let token;
+    if (req.headers.authorization?.startsWith('Bearer')) {
+        token = req.headers.authorization.split(' ')[1];
+    }
+    if (!token) {
+        return next(new AppError("Không tìm thấy token", 401));
+    }
+
+    const decoded: any = verifyToken(token);
+    // TTL = thời gian còn lại của token (giây)
+    const expiry = decoded.exp;
+    const now = Math.floor(Date.now() / 1000);
+    const ttl = expiry - now;
+
+    if (ttl > 0) {
+        await blacklistToken(token, ttl);
+    }
+
+    return res.status(200).json({
+        status: "success",
+        message: "Đăng xuất thành công"
+    });
 });

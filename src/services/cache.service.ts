@@ -1,4 +1,5 @@
 import { redisClient } from "../lib/redis";
+import { getBlacklistTokenKey } from "../utils/cacheKeys";
 
 export async function getCachedData<T>(key: string): Promise<T | null> {
   try {
@@ -20,7 +21,6 @@ export async function setCachedData(
     if (!redisClient.isOpen) return;
     await redisClient.setEx(key, ttlSeconds, JSON.stringify(data));
   } catch {
-    // Cache write failure is non-critical
   }
 }
 
@@ -29,7 +29,6 @@ export async function invalidateCache(key: string): Promise<void> {
     if (!redisClient.isOpen) return;
     await redisClient.del(key);
   } catch {
-    // Cache invalidation failure is non-critical
   }
 }
 
@@ -48,6 +47,26 @@ export async function invalidatePattern(pattern: string): Promise<void> {
       }
     } while (cursor !== "0");
   } catch {
-    // Pattern invalidation failure is non-critical
+  }
+}
+
+export async function blacklistToken(
+  token: string,
+  ttlSeconds: number
+): Promise<void> {
+  try {
+    if (!redisClient.isOpen) return;
+    await redisClient.setEx(getBlacklistTokenKey(token), ttlSeconds, "1");
+  } catch {
+  }
+}
+
+export async function isTokenBlacklisted(token: string): Promise<boolean> {
+  try {
+    if (!redisClient.isOpen) return false;
+    const result = await redisClient.get(getBlacklistTokenKey(token));
+    return result !== null;
+  } catch {
+    return false;
   }
 }

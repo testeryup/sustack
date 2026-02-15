@@ -7,3 +7,7 @@ export function getPostSlugKey(slug: string): string {
 }
 
 export const POST_LIST_PATTERN = "posts:list:*";
+
+export function getBlacklistTokenKey(token: string): string {
+  return `blacklist:token:${token}`;
+}
