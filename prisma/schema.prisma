@@ -7,11 +7,11 @@
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
+  binanryTargets = ["linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
   provider = "postgresql"
-
 }
 enum UserRole {
   USER
