@@ -17,6 +17,18 @@ enum UserRole {
   USER
   ADMIN
 }
+
+enum MediaStatus {
+  PENDING
+  ATTACHED
+}
+
+enum TaskStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
 model User {
   id        Int        @id @default(autoincrement())
   email     String     @unique
@@ -92,13 +104,14 @@ model Reaction {
 }
 
 model Media {
-  id         Int      @id @default(autoincrement())
-  url        String   // Secure URL từ Cloudinary
-  publicId   String   @unique // ID trên Cloudinary, dùng để xóa ảnh
-  format     String?  // jpg, png, webp...
-  width      Int?     // Chiều rộng (px)
-  height     Int?     // Chiều cao (px)
-  bytes      Int?     // Kích thước file (bytes)
+  id         Int          @id @default(autoincrement())
+  url        String       // Secure URL từ Cloudinary
+  publicId   String       @unique // ID trên Cloudinary, dùng để xóa ảnh
+  format     String?      // jpg, png, webp...
+  width      Int?         // Chiều rộng (px)
+  height     Int?         // Chiều cao (px)
+  bytes      Int?         // Kích thước file (bytes)
+  status     MediaStatus  @default(PENDING) // Trạng thái: PENDING = orphan, ATTACHED = gắn bài
 
   uploader   User     @relation(fields: [uploaderId], references: [id])
   uploaderId Int
@@ -110,4 +123,16 @@ model Media {
 
   @@index([uploaderId])
   @@index([postId])
+  @@index([status, createdAt]) // Tối ưu cho cron cleanup query
+}
+
+model Task {
+  id        Int        @id @default(autoincrement())
+  type      String     // Ví dụ: "SYNC_MEDIA"
+  status    TaskStatus @default(PENDING)
+  payload   Json       // { content, postId, userId }
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([status, createdAt])
 }

@@ -64,35 +64,33 @@ export const deleteMedia = async (mediaId: number) => {
 };
 
 /**
- * Lấy danh sách ảnh orphan (chưa gắn bài viết) của user.
+ * Lấy danh sách ảnh PENDING (chưa gắn bài viết) của user.
  * Hữu ích để dọn rác hoặc hiển thị ảnh nháp.
  */
 export const getOrphanMedia = (uploaderId: number) => {
   return prisma.media.findMany({
-    where: { uploaderId, postId: null },
+    where: { uploaderId, status: 'PENDING', postId: null },
     orderBy: { createdAt: 'desc' },
   });
 };
 
 /**
- * Gắn media vào bài viết (khi user publish).
+ * [DEPRECATED] Đã chuyển sang Transaction Outbox pattern.
+ * Việc gắn media vào bài viết do Task Runner (Worker Thread) xử lý tự động
+ * thông qua syncMediaStatus() trong src/workers/task-runner.ts
  */
-export const attachMediaToPost = (mediaId: number, postId: number) => {
-  return prisma.media.update({
-    where: { id: mediaId },
-    data: { postId },
-  });
-};
 
 /**
- * Xóa hàng loạt media orphan quá hạn (dùng cho cron job / admin).
- * Mặc định: orphan > 24 giờ.
+ * Xóa hàng loạt media PENDING quá hạn (dùng cho admin endpoint).
+ * Mặc định: PENDING > 24 giờ.
+ * Lưu ý: Cron job (2h sáng) cũng gọi logic tương tự từ cron.service.ts
  */
 export const cleanupOrphanMedia = async (hoursOld = 24) => {
   const cutoff = new Date(Date.now() - hoursOld * 60 * 60 * 1000);
 
   const orphans = await prisma.media.findMany({
     where: {
+      status: 'PENDING',
       postId: null,
       createdAt: { lt: cutoff },
     },

@@ -12,15 +12,33 @@ export const createPost = catchAsync(async (req: any, res: any) => {
 
   const slug = `${slugify(title, { lower: true, strict: true })}-${nanoid(4)}`;
 
-  const post = await prisma.post.create({
-    data: {
-      title,
-      content,
-      slug,
-      thumbnail,
-      published,
-      authorId: req.user.id,
-    },
+  // Transactional Outbox: tạo Post + Task trong cùng 1 transaction
+  const post = await prisma.$transaction(async (tx) => {
+    const newPost = await tx.post.create({
+      data: {
+        title,
+        content,
+        slug,
+        thumbnail,
+        published,
+        authorId: req.user.id,
+      },
+    });
+
+    // Tạo Task để Worker xử lý đồng bộ Media ngầm
+    await tx.task.create({
+      data: {
+        type: 'SYNC_MEDIA',
+        payload: {
+          content,
+          thumbnail: newPost.thumbnail,
+          postId: newPost.id,
+          userId: req.user.id,
+        },
+      },
+    });
+
+    return newPost;
   });
 
   await invalidatePattern(POST_LIST_PATTERN);
@@ -71,9 +89,27 @@ export const updatePost = catchAsync(async (req: any, res: any, next: any) => {
   if (thumbnail !== undefined) updateData.thumbnail = thumbnail;
   if (published !== undefined) updateData.published = published;
 
-  const updatedPost = await prisma.post.update({
-    where: { id: Number(id) },
-    data: updateData,
+  // Transactional Outbox: update Post + tạo Task trong cùng 1 transaction
+  const updatedPost = await prisma.$transaction(async (tx) => {
+    const updated = await tx.post.update({
+      where: { id: Number(id) },
+      data: updateData,
+    });
+
+    // Tạo Task để Worker đồng bộ lại Media (dùng content mới nhất)
+    await tx.task.create({
+      data: {
+        type: 'SYNC_MEDIA',
+        payload: {
+          content: updated.content,
+          thumbnail: updated.thumbnail,
+          postId: updated.id,
+          userId: req.user.id,
+        },
+      },
+    });
+
+    return updated;
   });
 
   // Invalidate old slug cache and list cache

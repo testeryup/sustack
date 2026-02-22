@@ -15,7 +15,7 @@ const swaggerDocument = {
     { name: "Posts", description: "CRUD bài viết" },
     { name: "Comments", description: "Bình luận đa cấp" },
     { name: "Reactions", description: "Like / Dislike bài viết" },
-    { name: "Media", description: "Upload & quản lý ảnh (Cloudinary)" },
+    { name: "Media", description: "Upload & quản lý ảnh — Two-Phase Upload (Cloudinary)" },
   ],
   components: {
     securitySchemes: {
@@ -163,14 +163,20 @@ const swaggerDocument = {
         type: "object",
         properties: {
           id: { type: "integer", example: 1 },
-          url: { type: "string", example: "https://res.cloudinary.com/demo/image/upload/sample.jpg" },
+          url: { type: "string", example: "https://res.cloudinary.com/demo/image/upload/sustack_blog/abc123.jpg" },
           publicId: { type: "string", example: "sustack_blog/abc123" },
           format: { type: "string", nullable: true, example: "jpg" },
           width: { type: "integer", nullable: true, example: 1920 },
           height: { type: "integer", nullable: true, example: 1080 },
           bytes: { type: "integer", nullable: true, example: 245000 },
           uploaderId: { type: "integer", example: 1 },
-          postId: { type: "integer", nullable: true, example: null },
+          postId: { type: "integer", nullable: true, example: null, description: "null = ảnh chưa gắn bài viết (PENDING)" },
+          status: {
+            type: "string",
+            enum: ["PENDING", "ATTACHED"],
+            example: "PENDING",
+            description: "PENDING = mới upload / orphan. ATTACHED = đã gắn vào bài viết bởi Task Runner.",
+          },
           createdAt: { type: "string", format: "date-time" },
         },
       },
@@ -299,7 +305,9 @@ const swaggerDocument = {
       post: {
         tags: ["Posts"],
         summary: "Tạo bài viết",
-        description: "Slug tự sinh từ title + nanoid. Mặc định `published = false` (nháp).",
+        description: `Slug tự sinh từ title + nanoid. Mặc định \`published = false\` (nháp).
+
+**Two-Phase Upload — Phase 2:** Khi tạo bài viết, server sẽ tạo một **Task** trong cùng DB Transaction. Task Runner (Worker Thread / Piscina pool) sẽ parse AST Markdown của \`content\`, trích xuất URL ảnh, tìm các \`Media\` record thuộc về user có URL khớp, sau đó cập nhật chúng thành \`status: ATTACHED\` và gán \`postId\`. Quá trình này chạy ngầm — response trả về ngay lập tức, không cần đợi.`,
         security: [{ BearerAuth: [] }],
         requestBody: {
           required: true,
@@ -360,7 +368,7 @@ const swaggerDocument = {
       patch: {
         tags: ["Posts"],
         summary: "Cập nhật bài viết",
-        description: "Partial update — chỉ gửi field cần thay đổi. Slug tự tái sinh khi đổi title. Chỉ tác giả hoặc admin.",
+        description: "Partial update — chỉ gửi field cần thay đổi. Slug tự tái sinh khi đổi title. Chỉ tác giả hoặc admin.\n\nTạo Task SYNC_MEDIA mới sau khi update: ảnh cũ không còn trong content sẽ bị detach (PENDING), ảnh mới sẽ được attach (ATTACHED).",
         security: [{ BearerAuth: [] }],
         parameters: [
           { name: "id", in: "path", required: true, schema: { type: "integer" }, description: "ID bài viết" },
@@ -601,8 +609,8 @@ Tất cả thao tác sử dụng DB transaction để đảm bảo counter chín
     "/media/upload": {
       post: {
         tags: ["Media"],
-        summary: "Upload ảnh lên Cloudinary",
-        description: "Chấp nhận file ảnh (jpg/png/webp...), tối đa 5 MB. Ảnh được lưu trên Cloudinary và record trong DB.",
+        summary: "Upload ảnh lên Cloudinary (Phase 1)",
+        description: "Upload ảnh lên Cloudinary, tối đa 5 MB. Ảnh được tạo trong DB với **status: PENDING** và **postId: null**.\n\n**Two-Phase Upload flow:**\n1. **Phase 1 (endpoint này):** Client upload ảnh → nhận lại URL. Ảnh ở trạng thái `PENDING`.\n2. Client chèn URL ảnh vào nội dung Markdown của bài viết.\n3. **Phase 2 (`POST /posts` hoặc `PATCH /posts/:id`):** Task Runner parse AST Markdown, tìm ảnh của user có URL khớp → cập nhật `status: ATTACHED` + gán `postId`.\n\nẢnh `PENDING` không được nhắc đến trong bài viết nào sẽ bị Cron Job xóa tự động sau 24 giờ (chạy lúc 2h sáng).",
         security: [{ BearerAuth: [] }],
         requestBody: {
           required: true,
@@ -642,8 +650,8 @@ Tất cả thao tác sử dụng DB transaction để đảm bảo counter chín
     "/media/orphan": {
       get: {
         tags: ["Media"],
-        summary: "Ảnh chưa gắn bài viết (orphan)",
-        description: "Danh sách ảnh của user hiện tại mà chưa được gắn vào bài viết nào (`postId = null`).",
+        summary: "Ảnh chưa gắn bài viết (PENDING)",
+        description: "Danh sách ảnh của user hiện tại có `status: PENDING` và `postId: null` — ảnh đã upload nhưng chưa được Task Runner gắn vào bài viết nào. Hữu ích để hiển thị ảnh nháp hoặc kiểm tra trạng thái trước khi publish.",
         security: [{ BearerAuth: [] }],
         responses: {
           "200": {
@@ -690,8 +698,8 @@ Tất cả thao tác sử dụng DB transaction để đảm bảo counter chín
     "/media/cleanup/orphan": {
       delete: {
         tags: ["Media"],
-        summary: "Dọn ảnh orphan (Admin only)",
-        description: "Xóa tất cả ảnh orphan (chưa gắn bài viết) cũ hơn N giờ. Mặc định 24 giờ.",
+        summary: "Dọn ảnh PENDING (Admin only — manual trigger)",
+        description: "Xóa tất cả ảnh có `status: PENDING` và `postId: null` cũ hơn N giờ khỏi Cloudinary + DB. Mặc định 24 giờ.\n\n**Lưu ý:** Cron job tự động chạy lúc 2h sáng hàng ngày với cùng logic này. Endpoint này chỉ cần dùng khi muốn trigger dọn dẹp thủ công.",
         security: [{ BearerAuth: [] }],
         parameters: [
           { name: "hours", in: "query", schema: { type: "integer", default: 24 }, description: "Xóa orphan cũ hơn N giờ" },

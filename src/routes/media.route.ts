@@ -11,9 +11,10 @@ router.use(protect);
 
 router.post('/upload', upload.single('image'), uploadImage);
 router.get('/orphan', getMyOrphanMedia);
-router.delete('/:id', deleteImage);
 
-// Admin only: dọn rác ảnh orphan hàng loạt
+// Admin only: dọn rác ảnh orphan hàng loạt (PHẢI đặt trước /:id để Express không nhầm "cleanup" là id)
 router.delete('/cleanup/orphan', restrictTo('ADMIN'), cleanupOrphan);
+
+router.delete('/:id', deleteImage);
 
 export default router;

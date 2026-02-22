@@ -20,6 +20,7 @@ Backend API cho nền tảng blog, hỗ trợ đầy đủ chức năng bài vi�
   - [Media](#media)
 - [Xác thực & Phân quyền](#xác-thực--phân-quyền)
 - [Caching](#caching)
+- [Background Jobs](#background-jobs)
 - [Validation](#validation)
 - [Error Handling](#error-handling)
 - [Swagger UI](#swagger-ui)
@@ -41,6 +42,8 @@ Backend API cho nền tảng blog, hỗ trợ đầy đủ chức năng bài vi�
 | Validation | Zod 4 |
 | Media Storage | Cloudinary |
 | Upload | Multer (memory storage) |
+| Background Jobs | `piscina` (Worker Thread Pool) + `node-cron` |
+| Markdown AST | `unified` + `remark-parse` + `unist-util-visit` |
 | Security | Helmet, CORS, express-rate-limit |
 | Testing | Jest 30 + ts-jest + Supertest |
 | Containerization | Docker (multi-stage build) |
@@ -52,7 +55,7 @@ Backend API cho nền tảng blog, hỗ trợ đầy đủ chức năng bài vi�
 
 ```
 sustack/
-├── server.ts                 # Entry point — khởi tạo Redis, listen
+├── server.ts                 # Entry point — khởi tạo Redis, Task Runner, Cron, listen
 ├── src/
 │   ├── app.ts                # Express app — middleware stack, route mounts
 │   ├── controllers/          # Request handlers (business logic)
@@ -76,7 +79,11 @@ sustack/
 │   │   └── validate.middleware.ts # Zod schema validation
 │   ├── services/
 │   │   ├── cache.service.ts       # Redis CRUD + token blacklist
-│   │   └── media.service.ts       # Cloudinary upload/delete + DB operations
+│   │   ├── media.service.ts       # Cloudinary upload/delete + DB operations
+│   │   └── cron.service.ts        # Scheduled cleanup jobs (node-cron)
+│   ├── workers/
+│   │   ├── ast-worker.ts          # Worker Thread — parse Markdown AST (remark), extract image publicIds
+│   │   └── task-runner.ts         # Task Runner — Piscina pool, quét bảng Task, gọi syncMediaStatus()
 │   ├── schemas/              # Zod validation schemas
 │   │   ├── user.schema.ts
 │   │   ├── post.schema.ts
@@ -147,11 +154,12 @@ flowchart LR
         R2["Xem reaction hiện tại"]
     end
 
-    subgraph Media["Media"]
-        M1["Upload ảnh\n(Cloudinary, max 5MB)"]
-        M2["Xem ảnh orphan"]
+    subgraph Media["Media (Two-Phase Upload)"]
+        M1["Phase 1: Upload ảnh\n(PENDING — Cloudinary, max 5MB)"]
+        M2["Xem ảnh PENDING (orphan)"]
         M3["Xóa ảnh"]
-        M4["Dọn orphan media"]
+        M4["Dọn ảnh PENDING thủ công"]
+        M5["Phase 2: Publish Post\n→ Task Runner gắn ảnh\n(PENDING → ATTACHED)"]
     end
 
     Guest --> A1
@@ -172,6 +180,7 @@ flowchart LR
     User --> M1
     User --> M2
     User --> M3
+    User --> M5
 
     Admin -.->|"Sửa/Xóa\nbài viết bất kỳ"| P4
     Admin -.->|"Sửa/Xóa\nbài viết bất kỳ"| P5
@@ -279,9 +288,11 @@ User 1──n Media
 
 Post 1──n Comment
 Post 1──n Reaction
-Post 1──n Media
+Post 1──n Media (onDelete: SetNull — Media.postId → null khi Post bị xóa)
 
 Comment 1──n Comment (self-relation: replies)
+
+Task (độc lập — Outbox, không có FK)
 ```
 
 ### Models
@@ -347,9 +358,23 @@ Comment 1──n Comment (self-relation: replies)
 | `width` | `Int?` | Pixel |
 | `height` | `Int?` | Pixel |
 | `bytes` | `Int?` | Kích thước file |
+| `status` | `MediaStatus` | `PENDING` (default) \| `ATTACHED` — xem Two-Phase Upload |
 | `uploaderId` | `Int` (FK → User) | |
-| `postId` | `Int?` (FK → Post, SET NULL) | `null` = orphan/nháp |
+| `postId` | `Int?` (FK → Post, SET NULL) | `null` = PENDING (orphan/nháp) |
 | `createdAt` | `DateTime` | |
+
+#### Task
+
+Bảng Outbox — lưu các công việc xử lý ngầm cần thực hiện.
+
+| Field | Type | Mô tả |
+|-------|------|--------|
+| `id` | `Int` (PK, auto) | |
+| `type` | `String` | Loại task, ví dụ: `SYNC_MEDIA` |
+| `status` | `TaskStatus` | `PENDING` → `PROCESSING` → `COMPLETED` \| `FAILED` |
+| `payload` | `Json` | Dữ liệu task, ví dụ: `{ content, postId, userId }` |
+| `createdAt` | `DateTime` | |
+| `updatedAt` | `DateTime` | |
 
 ---
 
@@ -491,7 +516,7 @@ Token sẽ bị blacklist trong Redis với TTL bằng thời gian còn lại c�
 ```json
 {
   "title": "Tiêu đề bài viết dài hơn 10 ký tự",
-  "content": "Nội dung markdown dài hơn 20 ký tự...",
+  "content": "Nội dung markdown, có thể chứa ảnh: ![alt](https://res.cloudinary.com/...)",
   "thumbnail": "https://res.cloudinary.com/...",
   "published": false
 }
@@ -504,6 +529,8 @@ Token sẽ bị blacklist trong Redis với TTL bằng thời gian còn lại c�
 - `published`: boolean (optional, default `false`)
 
 Slug tự sinh từ title + nanoid(4), ví dụ: `tieu-de-bai-viet-a1b2`.
+
+**Two-Phase Upload:** Sau khi tạo post, server tạo Task `SYNC_MEDIA` trong cùng Transaction. Task Runner sẽ xử lý ngầm để gắn ảnh vào post (xem [Two-Phase Upload](#two-phase-upload-giống-medium)).
 
 #### `PATCH /posts/:id`
 
@@ -586,10 +613,36 @@ Trả về reaction hiện tại (`{ type: "LIKE" }`) hoặc `null`.
 
 | Method | Endpoint | Auth | Mô tả |
 |--------|----------|------|--------|
-| `POST` | `/media/upload` | ✅ | Upload ảnh lên Cloudinary |
-| `GET` | `/media/orphan` | ✅ | Ảnh chưa gắn bài viết |
+| `POST` | `/media/upload` | ✅ | Upload ảnh → trạng thái PENDING (Phase 1) |
+| `GET` | `/media/orphan` | ✅ | Ảnh PENDING chưa gắn bài viết |
 | `DELETE` | `/media/:id` | ✅ | Xóa ảnh |
-| `DELETE` | `/media/cleanup/orphan` | ✅ Admin | Dọn orphan media |
+| `DELETE` | `/media/cleanup/orphan` | ✅ Admin | Dọn ảnh PENDING thủ công |
+
+#### Two-Phase Upload (giống Medium)
+
+```
+Phase 1 — Upload:
+  Client → POST /media/upload
+        ← { url, publicId, status: "PENDING", postId: null }
+
+Phase 2 — Publish:
+  Client → POST /posts { title, content: "...![alt](url)...", published: true }
+        ← 201 (response ngay lập tức)
+
+  Background (async):
+    Transaction → tạo Post + Task (SYNC_MEDIA) atomically
+    Task Runner (setInterval 10s) → lấy Task PENDING
+    Piscina Worker Pool → parse AST Markdown (remark)
+                       → trích xuất publicIds từ image nodes
+    syncMediaStatus() → Transaction:
+      1. Detach ảnh cũ của post (ATTACHED → PENDING, postId: null)
+      2. Attach ảnh mới (PENDING → ATTACHED, postId: X)
+         — chỉ ảnh thuộc về chủ bài viết
+
+Cleanup (Cron 2h sáng):
+  Ảnh PENDING + postId: null + createdAt < 24h trước
+  → xóa khỏi Cloudinary (batch API) + DB
+```
 
 #### `POST /media/upload`
 
@@ -605,22 +658,26 @@ Trả về reaction hiện tại (`{ type: "LIKE" }`) hoặc `null`.
 {
   "status": "success",
   "data": {
-    "media": {
-      "id": 1,
-      "url": "https://res.cloudinary.com/...",
-      "publicId": "sustack_blog/abc123",
-      "format": "jpg",
-      "width": 1920,
-      "height": 1080,
-      "bytes": 245000
-    }
+    "id": 1,
+    "url": "https://res.cloudinary.com/demo/image/upload/sustack_blog/abc123.jpg",
+    "publicId": "sustack_blog/abc123",
+    "format": "jpg",
+    "width": 1920,
+    "height": 1080,
+    "bytes": 245000,
+    "status": "PENDING",
+    "postId": null
   }
 }
 ```
 
+#### `GET /media/orphan`
+
+Trả về ảnh có `status: PENDING` và `postId: null` của user hiện tại. Hữu ích để hiển thị ảnh nháp.
+
 #### `DELETE /media/cleanup/orphan`
 
-**Query:** `?hours=24` (default 24) — xóa orphan media cũ hơn N giờ. Admin only.
+**Query:** `?hours=24` (default 24). Admin only. Cron job cũng chạy logic tương tự tự động lúc 2h sáng.
 
 ---
 
@@ -673,6 +730,60 @@ Cache tự động xóa khi:
 - **Xóa bài viết** → invalidate `posts:list:*` + `post:slug:{slug}`
 
 Tất cả cache operations đều fail gracefully — nếu Redis down, app vẫn hoạt động bình thường.
+
+---
+
+## Background Jobs
+
+Hệ thống xử lý ngầm gồm hai thành phần: **Task Runner** (Worker Pool) và **Cron Jobs**.
+
+### Transaction Outbox + Worker Pool (Task Runner)
+
+**Vấn đề cần giải quyết:** Sau khi user tạo/sửa bài viết chứa ảnh Markdown, cần parse AST để biết ảnh nào cần gắn vào bài — nhưng đây là tác vụ CPU-intensive, không nên chạy trên main event loop của Node.js.
+
+**Giải pháp:** Transaction Outbox Pattern + Piscina Worker Pool.
+
+```
+POST /posts
+  │
+  ├── prisma.$transaction()
+  │     ├── post.create(...)             ← tạo bài viết
+  │     └── task.create({ SYNC_MEDIA })  ← ghi Task vào DB atomically
+  │
+  └── Response 201 (trả về ngay)
+
+  Background (task-runner.ts — setInterval 10s):
+    ┌─────────────────────────────────────────┐
+    │  Quét Task PENDING (FIFO)               │
+    │  → updateMany status: PROCESSING        │  ← atomic claim, tránh race condition
+    │  → piscina.run({ content })             │
+    │       ↓ Worker Thread (ast-worker.ts)   │
+    │       unified + remark-parse            │
+    │       visit(tree, 'image', ...)         │
+    │       return publicIds[]               │
+    │  → syncMediaStatus(publicIds, payload)  │
+    │       Transaction:                      │
+    │       1. Detach ảnh cũ → PENDING        │
+    │       2. Attach ảnh mới → ATTACHED      │
+    │          (chỉ ảnh của chủ bài viết)     │
+    │  → update Task: COMPLETED / FAILED      │
+    └─────────────────────────────────────────┘
+```
+
+**Worker Pool config (`Piscina`):**
+
+| Param | Giá trị | Lý do |
+|-------|---------|-------|
+| `minThreads` | 1 | Luôn sẵn 1 thread |
+| `maxThreads` | 2 | Giới hạn CPU, không làm treo server Render |
+| `idleTimeout` | 30s | Thread tắt nếu không dùng → tiết kiệm RAM |
+
+### Cron Jobs (cron.service.ts)
+
+| Lịch | Việc | Chi tiết |
+|------|------|----------|
+| `0 2 * * *` (2h sáng) | Dọn ảnh PENDING > 24h | Xóa khỏi Cloudinary (`delete_resources` batch) + DB |
+| `0 3 * * *` (3h sáng) | Dọn Task cũ > 7 ngày | Xóa Task `COMPLETED`/`FAILED` khỏi DB |
 
 ---
 
