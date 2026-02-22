@@ -4,7 +4,7 @@ const swaggerDocument = {
     title: "Sustack Blog API",
     version: "1.0.0",
     description:
-      "REST API cho nền tảng blog — hỗ trợ bài viết, bình luận đa cấp, reaction, quản lý media (Cloudinary), xác thực JWT với token blacklist trên Redis và caching layer.",
+      "REST API cho nền tảng blog — hỗ trợ bài viết, bình luận đa cấp, reaction, quản lý media (Cloudinary), xác thực JWT với token blacklist trên Redis và caching layer. Tài khoản đăng nhập mặc định đã được nhập sẵn ở route login",
     contact: { name: "Sustack" },
   },
   servers: [

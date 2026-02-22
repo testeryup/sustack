@@ -4,6 +4,8 @@ Backend API cho nền tảng blog, hỗ trợ đầy đủ chức năng bài vi�
 
 > **Live URL**: [https://sustack-backend.onrender.com](https://sustack-backend.onrender.com)
 
+Tài khoản đăng nhập mặc định đã được nhập sẵn ở route login
+Report: `https://drive.google.com/file/d/1afa1zflhMYO36mOAXc1Q_WkH9MNOJK8d/view?usp=sharing`
 
 ## Mục lục
 
